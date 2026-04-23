@@ -11,7 +11,8 @@ import {
   IsDateString,
   MaxLength,
 } from 'class-validator';
-import { OwnerType, RevenueBasis, UtilitiesMap } from '../enums/owner-type.enum';
+import { OwnerType, RevenueBasis } from '../enums/owner-type.enum';
+import type { UtilitiesMap } from '../enums/owner-type.enum';
 
 export class UpsertCostDto {
   @IsString()

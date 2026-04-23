@@ -56,8 +56,8 @@ export class Cost {
   @Column({ type: 'boolean', default: false })
   revenueLinked: boolean;
 
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
-  revenuePercent: string; // decimal은 TypeORM에서 string
+  @Column({ type: 'int', default: 0 })
+  revenuePercent: number; // decimal은 TypeORM에서 string
 
   @Column({
     type: 'enum',
