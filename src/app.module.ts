@@ -5,6 +5,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { PropertiesModule } from './properties/properties.module.js';
 import { LaunchesModule } from './launches/launches.module.js';
+import { CostsModule } from './costs/costs.module.js';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { LaunchesModule } from './launches/launches.module.js';
     }),
     PropertiesModule,
     LaunchesModule,
+    CostsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
