@@ -1,0 +1,69 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  ParseIntPipe,
+} from '@nestjs/common';
+import { LaunchesService } from './launches.service';
+import { CreateLaunchDto } from './dto/create-launch.dto';
+import { UpdateLaunchDto } from './dto/update-launch.dto';
+import { UpdateStageDto } from './dto/update-stage.dto';
+import { QueryLaunchDto } from './dto/query-launch.dto';
+import { LaunchStageType } from './enums/launch-stage.enum';
+
+@Controller('api/launches')
+export class LaunchesController {
+  constructor(private readonly launchesService: LaunchesService) {}
+
+  @Post()
+  create(@Body() dto: CreateLaunchDto) {
+    return this.launchesService.create(dto);
+  }
+
+  @Get()
+  findAll(@Query() query: QueryLaunchDto) {
+    return this.launchesService.findAll(query);
+  }
+
+  @Get('overdue')
+  findOverdue() {
+    return this.launchesService.findOverdueStages();
+  }
+
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.launchesService.findOne(id);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateLaunchDto,
+  ) {
+    return this.launchesService.update(id, dto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.launchesService.remove(id);
+  }
+
+  @Post(':id/advance')
+  advance(@Param('id', ParseIntPipe) id: number) {
+    return this.launchesService.advanceStage(id);
+  }
+
+  @Patch(':id/stages/:stage')
+  updateStage(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('stage') stage: LaunchStageType,
+    @Body() dto: UpdateStageDto,
+  ) {
+    return this.launchesService.updateStage(id, stage, dto);
+  }
+}
