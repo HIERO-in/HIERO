@@ -4,83 +4,170 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
+  OneToMany,
 } from 'typeorm';
-
-export enum OwnershipType {
-  OWNED = 'OWNED',
-  LEASED = 'LEASED',
-  CONSIGNED = 'CONSIGNED',
-  REVENUE_SHARE = 'REVENUE_SHARE',
-}
-
-export enum PayoutVariableBase {
-  GROSS = 'GROSS',
-  NET = 'NET',
-}
+import { OwnershipType } from '../enums/ownership-type.enum.js';
+import { PropertyContract } from './property-contract.entity.js';
+import { PropertyLandlord } from './property-landlord.entity.js';
 
 @Entity('properties')
 export class Property {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ unique: true })
-  hostex_property_id: string;
+  // ============ Hostex 연동 ============
+  @Column({ type: 'bigint', unique: true })
+  @Index()
+  hostexId: number;
 
-  @Column()
-  name: string;
+  // ============ 기본 정보 ============
+  @Column({ type: 'varchar', length: 255 })
+  title: string;
 
-  @Column()
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  nickname: string;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  buildingName: string;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  roomNumber: string;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  launchStage: string;
+
+  // ============ 침대/방 구조 ============
+  @Column({ type: 'int', default: 0 })
+  queenBeds: number;
+
+  @Column({ type: 'int', default: 0 })
+  kingBeds: number;
+
+  @Column({ type: 'int', default: 0 })
+  doubleBeds: number;
+
+  @Column({ type: 'int', default: 0 })
+  singleBeds: number;
+
+  @Column({ type: 'int', default: 0 })
+  totalBeds: number;
+
+  @Column({ type: 'json', nullable: true })
+  amenities: string[];
+
+  // ============ 위치 정보 ============
+  @Column({ type: 'text', nullable: true })
+  address: string;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  formattedAddress: string;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  city: string;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
   district: string;
 
-  @Column({ type: 'enum', enum: OwnershipType })
-  ownership_type: OwnershipType;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  neighborhood: string;
 
-  // 월세
-  @Column({ type: 'int', default: 0 })
-  rent_monthly: number;
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  postalCode: string;
 
-  @Column({ type: 'varchar', nullable: true })
-  rent_recipient: string | null;
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  latitude: number;
 
-  @Column({ type: 'date', nullable: true })
-  rent_contract_start: Date | null;
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  longitude: number;
 
-  @Column({ type: 'date', nullable: true })
-  rent_contract_end: Date | null;
+  // ============ 이미지 ============
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  coverUrl: string;
 
-  @Column({ type: 'int', default: 0 })
-  rent_deposit: number;
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  coverMediumUrl: string;
 
-  // 위탁/배당
-  @Column({ type: 'int', default: 0 })
-  payout_fixed_monthly: number;
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  coverSmallUrl: string;
 
-  @Column({ type: 'int', default: 0 })
-  payout_variable_percent: number;
+  // ============ 운영 정보 ============
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  checkInTime: string;
 
-  @Column({ type: 'enum', enum: PayoutVariableBase, default: PayoutVariableBase.GROSS })
-  payout_variable_base: PayoutVariableBase;
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  checkOutTime: string;
 
-  // 자가
-  @Column({ type: 'int', default: 0 })
-  owned_loan_interest: number;
+  @Column({ type: 'varchar', length: 50, default: 'Asia/Seoul' })
+  timezone: string;
 
-  @Column({ type: 'int', default: 0 })
-  owned_depreciation: number;
+  // ============ WiFi ============
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  wifiSsid: string;
 
-  @Column({ type: 'int', default: 0 })
-  owned_property_tax_annual: number;
-
-  // 공과금
-  @Column({ type: 'json', nullable: true })
-  utilities: Record<string, any>;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  wifiPassword: string;
 
   @Column({ type: 'text', nullable: true })
-  notes: string | null;
+  wifiRemarks: string;
 
+  // ============ 채널 연동 ============
+  @Column({ type: 'json', nullable: true })
+  channels: any[];
+
+  // ============ 상태 ============
+  @Column({ type: 'varchar', length: 20, default: 'active' })
+  @Index()
+  status: string;
+
+  // ============ 운영 구분 (엑셀 '유형' 컬럼) ============
+  @Column({ type: 'enum', enum: OwnershipType, nullable: true })
+  @Index()
+  ownershipType: OwnershipType;
+
+  // ============ 내부 분류 코드 (엑셀 '코드' 컬럼) ============
+  /**
+   * 내부 숙소 코드. 예: 비어있거나 "20221121*", "02-488" 등 개별 부여값
+   */
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  internalCode: string;
+
+  /**
+   * 구역 코드. 예: H(송파 오금), D(강동 북길동), C(강동 중길동),
+   *              F(강동 남길동), A(강동 천호), B(강동 복천호) 등
+   */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  @Index()
+  areaCode: string;
+
+  /**
+   * 구역명. 예: "송파 오금", "강동 북길동"
+   */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  areaName: string;
+
+  // ============ 원본 데이터 보존 ============
+  @Column({ type: 'json', nullable: true })
+  rawData: any;
+
+  // ============ 관계 ============
+  @OneToMany(() => PropertyContract, (contract) => contract.property, {
+    cascade: false,
+  })
+  contracts: PropertyContract[];
+
+  @OneToMany(() => PropertyLandlord, (landlord) => landlord.property, {
+    cascade: false,
+  })
+  landlords: PropertyLandlord[];
+
+  // ============ 타임스탬프 ============
   @CreateDateColumn()
-  created_at: Date;
+  createdAt: Date;
 
   @UpdateDateColumn()
-  updated_at: Date;
+  updatedAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastSyncedAt: Date;
 }

@@ -1,3 +1,4 @@
+
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -6,9 +7,12 @@ import { AppService } from './app.service.js';
 import { PropertiesModule } from './properties/properties.module.js';
 import { LaunchesModule } from './launches/launches.module.js';
 import { CostsModule } from './costs/costs.module.js';
-
+import { ReservationsModule } from './reservations/reservations.module';
+import { MonthlyReportsModule } from './monthly-reports/monthly-reports.module.js';
+import { HealthModule } from './health/health.module';
 @Module({
   imports: [
+
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
@@ -26,6 +30,9 @@ import { CostsModule } from './costs/costs.module.js';
     PropertiesModule,
     LaunchesModule,
     CostsModule,
+    ReservationsModule,
+    MonthlyReportsModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

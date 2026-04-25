@@ -3,77 +3,130 @@ import {
   IsEnum,
   IsOptional,
   IsInt,
-  IsDateString,
+  IsNumber,
   IsObject,
+  Min,
 } from 'class-validator';
-import { OwnershipType, PayoutVariableBase } from '../entities/property.entity.js';
+import { OwnershipType } from '../enums/ownership-type.enum.js';
 
+/**
+ * 수동 Property 생성 DTO.
+ * 실제 운영에서는 PropertySyncService가 Hostex에서 자동으로 채우므로
+ * 이 엔드포인트는 예외적인 수동 등록용입니다.
+ *
+ * 계약 정보(보증금/월세/납부일 등)와 임대인 정보(계좌/비번 등)는
+ * 각각 PropertyContract / PropertyLandlord 엔티티로 분리되었으므로
+ * 별도 엔드포인트에서 입력합니다.
+ */
 export class CreatePropertyDto {
-  @IsString()
-  hostex_property_id: string;
+  @IsInt()
+  hostexId: number;
 
   @IsString()
-  name: string;
+  title: string;
 
+  @IsOptional()
   @IsString()
-  district: string;
+  nickname?: string;
 
+  @IsOptional()
+  @IsString()
+  buildingName?: string;
+
+  @IsOptional()
+  @IsString()
+  roomNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  launchStage?: string;
+
+  // ============ 위치 ============
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  district?: string;
+
+  @IsOptional()
+  @IsString()
+  neighborhood?: string;
+
+  @IsOptional()
+  @IsString()
+  postalCode?: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  // ============ 침대 ============
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  queenBeds?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  kingBeds?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  doubleBeds?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  singleBeds?: number;
+
+  // ============ 운영 정보 ============
+  @IsOptional()
+  @IsString()
+  checkInTime?: string;
+
+  @IsOptional()
+  @IsString()
+  checkOutTime?: string;
+
+  @IsOptional()
+  @IsString()
+  timezone?: string;
+
+  // ============ 운영 구분 (엑셀 유형) ============
+  @IsOptional()
   @IsEnum(OwnershipType)
-  ownership_type: OwnershipType;
-
-  // 월세
-  @IsOptional()
-  @IsInt()
-  rent_monthly?: number;
+  ownershipType?: OwnershipType;
 
   @IsOptional()
   @IsString()
-  rent_recipient?: string;
+  internalCode?: string;
 
   @IsOptional()
-  @IsDateString()
-  rent_contract_start?: string;
+  @IsString()
+  areaCode?: string;
 
   @IsOptional()
-  @IsDateString()
-  rent_contract_end?: string;
+  @IsString()
+  areaName?: string;
 
+  // ============ 기타 ============
   @IsOptional()
-  @IsInt()
-  rent_deposit?: number;
+  @IsString()
+  status?: string;
 
-  // 위탁/배당
-  @IsOptional()
-  @IsInt()
-  payout_fixed_monthly?: number;
-
-  @IsOptional()
-  @IsInt()
-  payout_variable_percent?: number;
-
-  @IsOptional()
-  @IsEnum(PayoutVariableBase)
-  payout_variable_base?: PayoutVariableBase;
-
-  // 자가
-  @IsOptional()
-  @IsInt()
-  owned_loan_interest?: number;
-
-  @IsOptional()
-  @IsInt()
-  owned_depreciation?: number;
-
-  @IsOptional()
-  @IsInt()
-  owned_property_tax_annual?: number;
-
-  // 공과금
   @IsOptional()
   @IsObject()
-  utilities?: Record<string, any>;
-
-  @IsOptional()
-  @IsString()
-  notes?: string;
+  rawData?: Record<string, any>;
 }
