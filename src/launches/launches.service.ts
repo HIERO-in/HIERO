@@ -11,6 +11,7 @@ import {
   LaunchStageType,
   LAUNCH_STAGES_IN_ORDER,
   LAUNCH_STAGE_ORDER,
+  LAUNCH_STAGE_LABELS,
 } from './enums/launch-stage.enum';
 import { LaunchStatus } from './enums/launch-status.enum';
 import { CreateLaunchDto } from './dto/create-launch.dto';
@@ -28,7 +29,7 @@ export class LaunchesService {
     private readonly dataSource: DataSource,
   ) {}
 
-  // Launch 생성 시 8개 LaunchStage 자동 생성
+  // Launch 생성 시 8개 LaunchStage 자동 생성 + searching 단계 시작 기록
   async create(dto: CreateLaunchDto): Promise<Launch> {
     const savedId = await this.dataSource.transaction(async (manager) => {
       const launch = manager.create(Launch, {
@@ -38,11 +39,14 @@ export class LaunchesService {
       });
       const savedLaunch = await manager.save(launch);
 
+      const now = new Date();
       const stages = LAUNCH_STAGES_IN_ORDER.map((stage) =>
         manager.create(LaunchStage, {
           launchId: savedLaunch.id,
           stage,
           stageOrder: LAUNCH_STAGE_ORDER[stage],
+          // 첫 단계는 생성 시점 = 시작 시점이므로 targetDate 세팅하지 않아도
+          // createdAt으로 진입 시점 추적 가능
         }),
       );
       await manager.save(stages);
@@ -131,22 +135,140 @@ export class LaunchesService {
     return this.stageRepo.save(stageRow);
   }
 
-  // 현재 단계를 다음 단계로 진행 (Q18: 건너뛰기 허용이지만 편의용)
+  // 현재 단계를 다음 단계로 진행 — 이전 단계 자동 완료 처리
   async advanceStage(launchId: number): Promise<Launch> {
     const launch = await this.findOne(launchId);
     const currentOrder = LAUNCH_STAGE_ORDER[launch.currentStage];
     if (currentOrder >= 8) {
       throw new BadRequestException('Already at final stage (LIVE)');
     }
+
+    // 현재 단계 completedAt 자동 기록
+    const currentStageRow = launch.stages.find(
+      (s) => s.stage === launch.currentStage,
+    );
+    if (currentStageRow && !currentStageRow.completedAt) {
+      currentStageRow.completedAt = new Date();
+      await this.stageRepo.save(currentStageRow);
+    }
+
     const nextStage = LAUNCH_STAGES_IN_ORDER[currentOrder]; // 0-indexed, next
     launch.currentStage = nextStage;
 
     if (nextStage === LaunchStageType.LIVE) {
       launch.status = LaunchStatus.LIVE;
+      // LIVE 단계도 자동 완료 처리
+      const liveStageRow = launch.stages.find(
+        (s) => s.stage === LaunchStageType.LIVE,
+      );
+      if (liveStageRow && !liveStageRow.completedAt) {
+        liveStageRow.completedAt = new Date();
+        await this.stageRepo.save(liveStageRow);
+      }
     }
 
     await this.launchRepo.save(launch);
     return this.findOne(launchId);
+  }
+
+  // 포기 처리
+  async abandon(
+    id: number,
+    reason?: string,
+  ): Promise<Launch> {
+    const launch = await this.findOne(id);
+    if (launch.status === LaunchStatus.ABANDONED) {
+      throw new BadRequestException('Already abandoned');
+    }
+    if (launch.status === LaunchStatus.LIVE) {
+      throw new BadRequestException('LIVE 상태는 포기할 수 없습니다');
+    }
+    launch.status = LaunchStatus.ABANDONED;
+    launch.abandonedAt = new Date();
+    launch.abandonedReason = reason ?? null;
+    await this.launchRepo.save(launch);
+    return this.findOne(id);
+  }
+
+  // 칸반보드용: 단계별 그룹핑 + daysInStage 계산
+  async getKanban(): Promise<{
+    columns: {
+      stage: LaunchStageType;
+      label: string;
+      order: number;
+      cards: any[];
+    }[];
+    totalActive: number;
+    totalAbandoned: number;
+  }> {
+    const [activeLaunches, abandonedCount] = await Promise.all([
+      this.launchRepo.find({
+        where: [
+          { status: LaunchStatus.ACTIVE },
+          { status: LaunchStatus.LIVE },
+        ],
+        relations: ['stages'],
+        order: { createdAt: 'ASC' },
+      }),
+      this.launchRepo.count({ where: { status: LaunchStatus.ABANDONED } }),
+    ]);
+
+    const now = new Date();
+    const columns = LAUNCH_STAGES_IN_ORDER.map((stage) => {
+      const cards = activeLaunches
+        .filter((l) => l.currentStage === stage)
+        .map((l) => {
+          // 현재 단계 진입일 = 이전 단계 completedAt, 또는 launch.createdAt (첫 단계)
+          const currentStageRow = l.stages.find((s) => s.stage === stage);
+          const prevOrder = LAUNCH_STAGE_ORDER[stage] - 1;
+          const prevStageRow = prevOrder > 0
+            ? l.stages.find((s) => s.stageOrder === prevOrder)
+            : null;
+
+          const enteredAt = prevStageRow?.completedAt || l.createdAt;
+          const daysInStage = Math.floor(
+            (now.getTime() - new Date(enteredAt).getTime()) / (24 * 60 * 60 * 1000),
+          );
+
+          return {
+            id: l.id,
+            name: l.name,
+            address: l.address,
+            status: l.status,
+            expectedRent: l.expectedRent,
+            expectedMonthlyRevenue: l.expectedMonthlyRevenue,
+            area: l.area,
+            memo: l.memo,
+            hostexId: l.hostexId,
+            daysInStage,
+            isOverdue: daysInStage >= 7,
+            enteredAt,
+            stages: l.stages.sort((a, b) => a.stageOrder - b.stageOrder),
+          };
+        });
+
+      return {
+        stage,
+        label: LAUNCH_STAGE_LABELS[stage],
+        order: LAUNCH_STAGE_ORDER[stage],
+        cards,
+      };
+    });
+
+    return {
+      columns,
+      totalActive: activeLaunches.length,
+      totalAbandoned: abandonedCount,
+    };
+  }
+
+  // 포기된 런칭 목록 (포기됨 탭용)
+  async findAbandoned(): Promise<Launch[]> {
+    return this.launchRepo.find({
+      where: { status: LaunchStatus.ABANDONED },
+      relations: ['stages'],
+      order: { abandonedAt: 'DESC' },
+    });
   }
 
   // 데드라인 지난 미완료 단계 조회

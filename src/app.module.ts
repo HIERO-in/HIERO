@@ -10,6 +10,9 @@ import { CostsModule } from './costs/costs.module.js';
 import { ReservationsModule } from './reservations/reservations.module';
 import { MonthlyReportsModule } from './monthly-reports/monthly-reports.module.js';
 import { HealthModule } from './health/health.module';
+import { TransactionsModule } from './transactions/transactions.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { ReservationNotesModule } from './reservation-notes/reservation-notes.module';
 @Module({
   imports: [
 
@@ -33,6 +36,9 @@ import { HealthModule } from './health/health.module';
     ReservationsModule,
     MonthlyReportsModule,
     HealthModule,
+    TransactionsModule,
+    DashboardModule,
+    ReservationNotesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

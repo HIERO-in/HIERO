@@ -1,4 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Between } from 'typeorm';
 import { PropertiesService } from '../properties/properties.service';
 import { ReservationsService } from '../reservations/reservations.service';
 import { CostsService } from '../costs/costs.service';
@@ -7,6 +9,7 @@ import { Property } from '../properties/entities/property.entity';
 import { Reservation } from '../reservations/entities/reservation.entity';
 import { Cost } from '../costs/entities/cost.entity';
 import { MonthlyReportProperty } from '../monthly-reports/entities/monthly-report-property.entity';
+import { HostexTransaction, TransactionKind } from '../transactions/entities/hostex-transaction.entity';
 import { UtilityMode } from '../costs/enums/owner-type.enum';
 import {
   HealthGrade,
@@ -18,6 +21,8 @@ import {
   PeriodRange,
   PropertyHealthResult,
   PortfolioSummary,
+  PortfolioHealthResponse,
+  CostCoverage,
   DiagnosticItem,
 } from './types/health.types';
 
@@ -36,23 +41,45 @@ export class HealthService {
     private readonly reservationsService: ReservationsService,
     private readonly costsService: CostsService,
     private readonly monthlyReportsService: MonthlyReportsService,
+    @InjectRepository(HostexTransaction)
+    private readonly txRepo: Repository<HostexTransaction>,
   ) {}
 
   // ═══════════ Public API ═══════════
 
-  async evaluatePortfolio(periodStr = '90d'): Promise<PropertyHealthResult[]> {
+  async evaluatePortfolio(periodStr = '90d'): Promise<PortfolioHealthResponse> {
     const period = this.parsePeriod(periodStr);
+    const requestedMonths = this.getMonthsBetween(period.start, period.end);
 
-    // 4 batch queries (no N+1)
-    const [properties, allReservations, allCosts, mrpRows] = await Promise.all([
+    // 5 batch queries
+    const [properties, allReservations, allCosts, mrpRows, allTx] = await Promise.all([
       this.propertiesService.findAll(),
       this.reservationsService.findAll({ from: period.start, to: period.end }),
       this.costsService.findAll(),
       this.fetchMrpForPeriod(period),
+      this.txRepo.createQueryBuilder('t')
+        .where('t.checkInDate <= :end AND t.checkOutDate >= :start', {
+          start: period.start,
+          end: period.end,
+        })
+        .getMany(),
     ]);
 
-    // Group reservations by propertyId (= hostexId in reservations table)
-    // Key as string because property.hostexId is bigint (returned as string by TypeORM)
+    // Coverage: transactions 기준 (MRP보다 넓은 범위)
+    const txMonths = [...new Set(allTx.map((t) => `${t.year}-${String(t.month).padStart(2, '0')}`))].sort();
+    const mrpMonths = [...new Set(mrpRows.map((r) => r.month))].sort();
+    const availableMonths = txMonths.length > 0 ? txMonths : mrpMonths;
+    const missingMonths = requestedMonths.filter((m) => !availableMonths.includes(m));
+    const coverage: CostCoverage = {
+      requestedDays: period.days,
+      availableMonths,
+      missingMonths,
+      coverageRatio: requestedMonths.length > 0
+        ? Math.round((availableMonths.length / requestedMonths.length) * 1000) / 1000
+        : 0,
+    };
+
+    // Group reservations by hostexId
     const resByHostexId = new Map<string, Reservation[]>();
     for (const r of allReservations) {
       const key = String(r.propertyId);
@@ -61,27 +88,65 @@ export class HealthService {
       resByHostexId.set(key, list);
     }
 
-    // Cost lookup by hostexId string
+    // Group transactions by propertyTitle (for property matching)
+    const txByTitle = new Map<string, HostexTransaction[]>();
+    for (const t of allTx) {
+      if (!t.propertyTitle) continue;
+      const list = txByTitle.get(t.propertyTitle) ?? [];
+      list.push(t);
+      txByTitle.set(t.propertyTitle, list);
+    }
+
     const costByHostexId = new Map<string, Cost>();
     for (const c of allCosts) costByHostexId.set(c.hostexId, c);
 
-    // MRP lookup by propertyName (3-tier matching)
     const mrpByName = this.groupMrpByName(mrpRows);
     const propertyToMrps = this.matchPropertiesToMrp(properties, mrpByName);
 
     const results: PropertyHealthResult[] = [];
     for (const property of properties) {
       const reservations = resByHostexId.get(String(property.hostexId)) ?? [];
-      const { fixedCost, fixedBreakdown, costSource } =
-        this.getFixedCost(property, period, propertyToMrps, costByHostexId);
+
+      // Priority 1: transactions (line-item, 슬라이싱)
+      const propertyTx = txByTitle.get(property.title) ?? [];
+      const txCost = this.computeTxCost(propertyTx, period);
+
+      let fixedCost: number;
+      let fixedBreakdown: Record<string, number>;
+      let costSource: 'transaction' | 'monthly_report' | 'cost_entity' | 'none';
+
+      if (txCost.total > 0) {
+        fixedCost = txCost.total;
+        fixedBreakdown = txCost.breakdown;
+        costSource = 'transaction';
+      } else {
+        // Priority 2/3: MRP → cost entity (deprecated fallback)
+        const fallback = this.getFixedCostFallback(property, period, propertyToMrps, costByHostexId);
+        fixedCost = fallback.fixedCost;
+        fixedBreakdown = fallback.fixedBreakdown;
+        costSource = fallback.costSource;
+      }
+
       results.push(
         this.evaluateProperty(property, reservations, fixedCost, fixedBreakdown, costSource, period),
       );
     }
 
-    // Worst first
     results.sort((a, b) => a.healthScore - b.healthScore);
-    return results;
+
+    // Revenue: transactions INCOME 슬라이싱 vs reservations
+    let txAlignedRevenue = 0;
+    for (const t of allTx) {
+      if (t.kind === TransactionKind.INCOME) txAlignedRevenue += t.amount;
+    }
+    const fullRevenue = results.reduce((s, r) => s + r.grossRevenue, 0);
+
+    return {
+      properties: results,
+      coverage,
+      grossRevenue_full: Math.round(fullRevenue),
+      grossRevenue_alignedToCostWindow: Math.round(txAlignedRevenue || fullRevenue),
+    };
   }
 
   async evaluateSingle(
@@ -94,21 +159,39 @@ export class HealthService {
       throw new NotFoundException(`Property ${propertyId} not found`);
     }
 
-    const [reservations, allCosts, mrpRows] = await Promise.all([
-      // reservation.propertyId = property.hostexId (Hostex listing ID)
+    const [reservations, allCosts, mrpRows, propertyTx] = await Promise.all([
       this.reservationsService.findByProperty(Number(property.hostexId), period.start, period.end),
       this.costsService.findAll(),
       this.fetchMrpForPeriod(period),
+      this.txRepo.createQueryBuilder('t')
+        .where('t.propertyTitle = :title', { title: property.title })
+        .andWhere('t.checkInDate <= :end AND t.checkOutDate >= :start', {
+          start: period.start,
+          end: period.end,
+        })
+        .getMany(),
     ]);
 
-    const costByHostexId = new Map<string, Cost>();
-    for (const c of allCosts) costByHostexId.set(c.hostexId, c);
+    // Priority 1: transactions
+    const txCost = this.computeTxCost(propertyTx, period);
+    let fixedCost: number;
+    let fixedBreakdown: Record<string, number>;
+    let costSource: 'transaction' | 'monthly_report' | 'cost_entity' | 'none';
 
-    const mrpByName = this.groupMrpByName(mrpRows);
-    const propertyToMrps = this.matchPropertiesToMrp([property], mrpByName);
-
-    const { fixedCost, fixedBreakdown, costSource } =
-      this.getFixedCost(property, period, propertyToMrps, costByHostexId);
+    if (txCost.total > 0) {
+      fixedCost = txCost.total;
+      fixedBreakdown = txCost.breakdown;
+      costSource = 'transaction';
+    } else {
+      const costByHostexId = new Map<string, Cost>();
+      for (const c of allCosts) costByHostexId.set(c.hostexId, c);
+      const mrpByName = this.groupMrpByName(mrpRows);
+      const propertyToMrps = this.matchPropertiesToMrp([property], mrpByName);
+      const fallback = this.getFixedCostFallback(property, period, propertyToMrps, costByHostexId);
+      fixedCost = fallback.fixedCost;
+      fixedBreakdown = fallback.fixedBreakdown;
+      costSource = fallback.costSource;
+    }
 
     return this.evaluateProperty(
       property, reservations, fixedCost, fixedBreakdown, costSource, period,
@@ -116,7 +199,8 @@ export class HealthService {
   }
 
   async getPortfolioSummary(periodStr = '90d'): Promise<PortfolioSummary> {
-    const results = await this.evaluatePortfolio(periodStr);
+    const portfolio = await this.evaluatePortfolio(periodStr);
+    const results = portfolio.properties;
     const period = this.parsePeriod(periodStr);
 
     const gradeDistribution = {
@@ -128,32 +212,59 @@ export class HealthService {
     const tagDistribution: Record<string, number> = {};
     let totalScore = 0;
     let totalRevenue = 0;
+    let totalCommission = 0;
+    let totalNetRevenue = 0;
+    let totalCost = 0;
     let totalNetProfit = 0;
     let totalOcc = 0;
     let totalMargin = 0;
+    const costBreakdown: Record<string, number> = {};
 
     for (const r of results) {
       gradeDistribution[r.grade]++;
       totalScore += r.healthScore;
       totalRevenue += r.grossRevenue;
+      totalCommission += r.commission;
+      totalNetRevenue += r.netRevenue;
+      totalCost += r.totalCosts;
       totalNetProfit += r.realProfit;
       totalOcc += r.occupancyRate;
       totalMargin += r.profitMargin;
+      // 비용 카테고리 집계
+      for (const [cat, amt] of Object.entries(r.fixedBreakdown)) {
+        costBreakdown[cat] = (costBreakdown[cat] ?? 0) + amt;
+      }
       for (const d of r.diagnostics) {
         tagDistribution[d.key] = (tagDistribution[d.key] ?? 0) + 1;
       }
     }
 
     const n = results.length || 1;
+    const profitMargin = totalRevenue > 0
+      ? Math.round((totalNetProfit / totalRevenue) * 10000) / 100
+      : 0;
+
     return {
       period,
       totalProperties: results.length,
       averageScore: Math.round(totalScore / n),
       gradeDistribution,
+      // 워터폴 데이터
+      grossRevenue: Math.round(totalRevenue),
+      commission: Math.round(totalCommission),
+      netRevenue: Math.round(totalNetRevenue),
+      costBreakdown,
+      totalCost: Math.round(totalCost),
+      realProfit: Math.round(totalNetProfit),
+      profitMargin,
+      // 기존 호환
       totalRevenue: Math.round(totalRevenue),
       totalNetProfit: Math.round(totalNetProfit),
       averageOccupancy: Math.round((totalOcc / n) * 100) / 100,
       averageProfitMargin: Math.round((totalMargin / n) * 100) / 100,
+      coverage: portfolio.coverage,
+      grossRevenue_full: portfolio.grossRevenue_full,
+      grossRevenue_alignedToCostWindow: portfolio.grossRevenue_alignedToCostWindow,
       tagDistribution: tagDistribution as Record<DiagnosticTag, number>,
     };
   }
@@ -165,7 +276,7 @@ export class HealthService {
     reservations: Reservation[],
     fixedCost: number,
     fixedBreakdown: Record<string, number>,
-    costSource: 'monthly_report' | 'cost_entity' | 'none',
+    costSource: 'transaction' | 'monthly_report' | 'cost_entity' | 'none',
     period: PeriodRange,
   ): PropertyHealthResult {
     // Separate cancelled vs active
@@ -281,6 +392,7 @@ export class HealthService {
       title: property.title,
       nickname: property.nickname ?? null,
       areaCode: property.areaCode ?? null,
+      propertyStatus: property.status ?? 'active',
       period,
       grossRevenue: Math.round(grossRevenue),
       commission: Math.round(commission),
@@ -402,9 +514,54 @@ export class HealthService {
     return expense;
   }
 
-  // ═══════════ Cost Resolution (3-tier priority) ═══════════
+  // ═══════════ Cost Resolution ═══════════
 
-  private getFixedCost(
+  /**
+   * Priority 1: Transactions (line-item 슬라이싱).
+   * 체크인 날짜가 기간 내인 EXPENSE 거래를 카테고리별 합산.
+   * 슬라이싱: stayDays 대비 기간 중첩 일수 비율로 금액 배분.
+   */
+  private computeTxCost(
+    txRows: HostexTransaction[],
+    period: PeriodRange,
+  ): { total: number; breakdown: Record<string, number> } {
+    const expenses = txRows.filter((t) => t.kind === TransactionKind.EXPENSE);
+    if (expenses.length === 0) return { total: 0, breakdown: {} };
+
+    const pStart = new Date(period.start).getTime();
+    const pEnd = new Date(period.end).getTime();
+    const breakdown: Record<string, number> = {};
+    let total = 0;
+
+    for (const tx of expenses) {
+      let slicedAmount = tx.amount;
+
+      // 슬라이싱: checkIn/checkOut 있으면 기간 중첩 비율 적용
+      if (tx.checkInDate && tx.checkOutDate) {
+        const ci = new Date(tx.checkInDate).getTime();
+        const co = new Date(tx.checkOutDate).getTime();
+        const stayDays = Math.max(1, Math.round((co - ci) / DAY_MS));
+        const overlapStart = Math.max(ci, pStart);
+        const overlapEnd = Math.min(co, pEnd + DAY_MS);
+        const overlapDays = Math.max(0, Math.round((overlapEnd - overlapStart) / DAY_MS));
+        const sliceRatio = overlapDays / stayDays;
+        slicedAmount = Math.round(tx.amount * sliceRatio);
+      }
+
+      if (slicedAmount > 0) {
+        breakdown[tx.category] = (breakdown[tx.category] ?? 0) + slicedAmount;
+        total += slicedAmount;
+      }
+    }
+
+    return { total, breakdown };
+  }
+
+  /**
+   * Priority 2/3: MRP → Cost entity (deprecated fallback).
+   * transactions 데이터가 없는 호실용.
+   */
+  private getFixedCostFallback(
     property: Property,
     period: PeriodRange,
     propertyToMrps: Map<number, MonthlyReportProperty[]>,
@@ -412,7 +569,7 @@ export class HealthService {
   ): { fixedCost: number; fixedBreakdown: Record<string, number>; costSource: 'monthly_report' | 'cost_entity' | 'none' } {
     const ratio = period.days / DAYS_IN_MONTH;
 
-    // Priority 1: Monthly Report data
+    // Priority 2: Monthly Report data (deprecated)
     const mrps = propertyToMrps.get(property.id);
     if (mrps && mrps.length > 0) {
       const avg: Record<string, number> = {

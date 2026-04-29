@@ -30,6 +30,16 @@ export class LaunchesController {
     return this.launchesService.findAll(query);
   }
 
+  @Get('kanban')
+  getKanban() {
+    return this.launchesService.getKanban();
+  }
+
+  @Get('abandoned')
+  findAbandoned() {
+    return this.launchesService.findAbandoned();
+  }
+
   @Get('overdue')
   findOverdue() {
     return this.launchesService.findOverdueStages();
@@ -56,6 +66,14 @@ export class LaunchesController {
   @Post(':id/advance')
   advance(@Param('id', ParseIntPipe) id: number) {
     return this.launchesService.advanceStage(id);
+  }
+
+  @Post(':id/abandon')
+  abandon(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('reason') reason?: string,
+  ) {
+    return this.launchesService.abandon(id, reason);
   }
 
   @Patch(':id/stages/:stage')

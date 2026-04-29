@@ -17,16 +17,17 @@ export class PropertiesService {
     return this.propertyRepository.save(property);
   }
 
-  findAll(): Promise<Property[]> {
-    return this.propertyRepository.find();
+  async findAll(): Promise<any[]> {
+    const properties = await this.propertyRepository.find();
+    return properties.map((p) => ({ ...p, platformLinks: p.platformLinks }));
   }
 
-  async findOne(id: number): Promise<Property> {
+  async findOne(id: number): Promise<any> {
     const property = await this.propertyRepository.findOneBy({ id });
     if (!property) {
       throw new NotFoundException(`Property #${id} not found`);
     }
-    return property;
+    return { ...property, platformLinks: property.platformLinks };
   }
 
   async update(id: number, dto: UpdatePropertyDto): Promise<Property> {
@@ -36,7 +37,8 @@ export class PropertiesService {
   }
 
   async remove(id: number): Promise<void> {
-    const property = await this.findOne(id);
-    await this.propertyRepository.remove(property);
+    const prop = await this.propertyRepository.findOneBy({ id });
+    if (!prop) throw new NotFoundException(`Property #${id} not found`);
+    await this.propertyRepository.remove(prop);
   }
 }

@@ -115,6 +115,35 @@ export class Property {
   @Column({ type: 'json', nullable: true })
   channels: any[];
 
+  /**
+   * channels 배열에서 플랫폼별 직접 링크를 자동 생성.
+   * Hostex sync로 channels가 채워지면 별도 설정 없이 링크 제공.
+   */
+  get platformLinks(): Record<string, string> {
+    if (!this.channels || !Array.isArray(this.channels)) return {};
+    const links: Record<string, string> = {};
+    for (const ch of this.channels) {
+      const id = ch.listing_id;
+      if (!id) continue;
+      switch (ch.channel_type) {
+        case 'airbnb':
+          links.airbnb = `https://www.airbnb.co.kr/rooms/${id}`;
+          break;
+        case 'booking_site':
+          links.booking = `https://admin.booking.com/hotel/hoteladmin/extranet_ng/manage/home.html?hotel_id=${id.split('-')[0]}`;
+          break;
+        case 'agoda':
+          links.agoda = `https://ycs.agoda.com/kipp/property/${id.split('-')[0]}/overview`;
+          break;
+      }
+    }
+    // Hostex 관리 링크
+    if (this.hostexId) {
+      links.hostex = `https://hostex.io/app/calendar`;
+    }
+    return links;
+  }
+
   // ============ 상태 ============
   @Column({ type: 'varchar', length: 20, default: 'active' })
   @Index()

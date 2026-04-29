@@ -14,12 +14,12 @@ export class HealthController {
 
   @Get('portfolio')
   evaluatePortfolio(@Query() query: QueryHealthDto) {
-    return this.healthService.evaluatePortfolio(query.period ?? '90d');
+    return this.healthService.evaluatePortfolio(query.period ?? 'this_month');
   }
 
   @Get('summary')
   getPortfolioSummary(@Query() query: QueryHealthDto) {
-    return this.healthService.getPortfolioSummary(query.period ?? '90d');
+    return this.healthService.getPortfolioSummary(query.period ?? 'this_month');
   }
 
   @Get('properties/:id')
@@ -27,6 +27,6 @@ export class HealthController {
     @Param('id', ParseIntPipe) id: number,
     @Query() query: QueryHealthDto,
   ) {
-    return this.healthService.evaluateSingle(id, query.period ?? '90d');
+    return this.healthService.evaluateSingle(id, query.period ?? 'this_month');
   }
 }

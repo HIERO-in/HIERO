@@ -19,6 +19,7 @@ export interface PropertyHealthResult {
   title: string;
   nickname: string | null;
   areaCode: string | null;
+  propertyStatus: string;
 
   period: PeriodRange;
 
@@ -28,7 +29,7 @@ export interface PropertyHealthResult {
   netRevenue: number;
   fixedCost: number;
   fixedBreakdown: Record<string, number>;
-  costSource: 'monthly_report' | 'cost_entity' | 'none';
+  costSource: 'transaction' | 'monthly_report' | 'cost_entity' | 'none';
   hostexExpense: number;
   totalCosts: number;
   realProfit: number;
@@ -71,14 +72,40 @@ export interface PropertyHealthResult {
   diagnostics: DiagnosticItem[];
 }
 
+export interface CostCoverage {
+  requestedDays: number;
+  availableMonths: string[];
+  missingMonths: string[];
+  coverageRatio: number;
+}
+
+export interface PortfolioHealthResponse {
+  properties: PropertyHealthResult[];
+  coverage: CostCoverage;
+  grossRevenue_full: number;
+  grossRevenue_alignedToCostWindow: number;
+}
+
 export interface PortfolioSummary {
   period: PeriodRange;
   totalProperties: number;
   averageScore: number;
   gradeDistribution: Record<HealthGrade, number>;
+  // 워터폴 데이터
+  grossRevenue: number;
+  commission: number;
+  netRevenue: number;
+  costBreakdown: Record<string, number>;
+  totalCost: number;
+  realProfit: number;
+  profitMargin: number;
+  // 기존 호환
   totalRevenue: number;
   totalNetProfit: number;
   averageOccupancy: number;
   averageProfitMargin: number;
   tagDistribution: Record<DiagnosticTag, number>;
+  coverage: CostCoverage;
+  grossRevenue_full: number;
+  grossRevenue_alignedToCostWindow: number;
 }

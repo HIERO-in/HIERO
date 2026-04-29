@@ -13,7 +13,7 @@ describe('HealthService — scoring logic', () => {
 
   beforeEach(() => {
     // null deps: 순수 계산 함수만 테스트하므로 DI 불필요
-    service = new HealthService(null as any, null as any, null as any, null as any);
+    service = new HealthService(null as any, null as any, null as any, null as any, null as any);
   });
 
   // ── helpers ──
@@ -161,7 +161,7 @@ describe('HealthService — MRP matching', () => {
   let service: HealthService;
 
   beforeEach(() => {
-    service = new HealthService(null as any, null as any, null as any, null as any);
+    service = new HealthService(null as any, null as any, null as any, null as any, null as any);
   });
 
   function makeMrp(propertyName: string, month = '2026-03'): MonthlyReportProperty {
