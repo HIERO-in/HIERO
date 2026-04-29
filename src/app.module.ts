@@ -13,10 +13,13 @@ import { HealthModule } from './health/health.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ReservationNotesModule } from './reservation-notes/reservation-notes.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { SyncScheduleService } from './sync-schedule.service';
 @Module({
   imports: [
 
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -41,6 +44,6 @@ import { ReservationNotesModule } from './reservation-notes/reservation-notes.mo
     ReservationNotesModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, SyncScheduleService],
 })
 export class AppModule {}

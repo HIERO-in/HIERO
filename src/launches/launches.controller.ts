@@ -81,6 +81,14 @@ export class LaunchesController {
     return this.launchesService.abandon(id, reason);
   }
 
+  @Post(':id/link-property')
+  linkToProperty(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('hostexId') hostexId: string,
+  ) {
+    return this.launchesService.linkToProperty(id, hostexId);
+  }
+
   @Patch(':id/stages/:stage')
   updateStage(
     @Param('id', ParseIntPipe) id: number,

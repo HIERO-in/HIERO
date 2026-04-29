@@ -18,6 +18,7 @@ import { CreateLaunchDto } from './dto/create-launch.dto';
 import { UpdateLaunchDto } from './dto/update-launch.dto';
 import { UpdateStageDto } from './dto/update-stage.dto';
 import { QueryLaunchDto } from './dto/query-launch.dto';
+import { PropertiesService } from '../properties/properties.service';
 
 @Injectable()
 export class LaunchesService {
@@ -27,6 +28,7 @@ export class LaunchesService {
     @InjectRepository(LaunchStage)
     private readonly stageRepo: Repository<LaunchStage>,
     private readonly dataSource: DataSource,
+    private readonly propertiesService: PropertiesService,
   ) {}
 
   // Launch 생성 시 8개 LaunchStage 자동 생성 + searching 단계 시작 기록
@@ -311,6 +313,43 @@ export class LaunchesService {
         assignee: s.assignee,
       })),
     };
+  }
+
+  /**
+   * LIVE 런칭을 Properties에 연결.
+   * hostexId를 입력하면 Launch에 기록하고,
+   * 해당 hostexId의 Property가 이미 있으면 연결 확인만,
+   * 없으면 기본 정보로 Property 생성.
+   */
+  async linkToProperty(
+    launchId: number,
+    hostexId: string,
+  ): Promise<{ launch: Launch; propertyId: number; created: boolean }> {
+    const launch = await this.findOne(launchId);
+    if (launch.status !== LaunchStatus.LIVE) {
+      throw new BadRequestException('LIVE 상태의 런칭만 Properties에 연결할 수 있습니다');
+    }
+
+    // Launch에 hostexId 기록
+    launch.hostexId = hostexId;
+    await this.launchRepo.save(launch);
+
+    // Property 조회 or 생성
+    const allProps = await this.propertiesService.findAll();
+    const existing = allProps.find((p: any) => String(p.hostexId) === hostexId);
+
+    if (existing) {
+      return { launch: await this.findOne(launchId), propertyId: existing.id, created: false };
+    }
+
+    // 새 Property 생성 (기본 정보만 — Hostex sync 시 나머지 채워짐)
+    const newProp = await this.propertiesService.create({
+      hostexId: Number(hostexId),
+      title: launch.name,
+      address: launch.address,
+    } as any);
+
+    return { launch: await this.findOne(launchId), propertyId: newProp.id, created: true };
   }
 
   // 데드라인 지난 미완료 단계 조회

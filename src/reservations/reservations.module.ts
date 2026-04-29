@@ -18,6 +18,6 @@ import { ReservationSyncService } from './services/reservation-sync.service'; //
     HostexService,                                         // ← 추가
     ReservationSyncService,                                // ← 추가
   ],
-  exports: [ReservationsService],
+  exports: [ReservationsService, ReservationSyncService],
 })
 export class ReservationsModule {}

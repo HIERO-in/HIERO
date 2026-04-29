@@ -24,6 +24,6 @@ import { PropertiesImportService } from './services/properties-import.service.js
     PropertiesExportService,
     PropertiesImportService,
   ],
-  exports: [PropertiesService],
+  exports: [PropertiesService, PropertySyncService],
 })
 export class PropertiesModule {}
