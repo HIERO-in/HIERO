@@ -50,6 +50,11 @@ export class LaunchesController {
     return this.launchesService.findOne(id);
   }
 
+  @Get(':id/summary')
+  getSummary(@Param('id', ParseIntPipe) id: number) {
+    return this.launchesService.getSummary(id);
+  }
+
   @Patch(':id')
   update(
     @Param('id', ParseIntPipe) id: number,

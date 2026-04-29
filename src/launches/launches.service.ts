@@ -45,8 +45,7 @@ export class LaunchesService {
           launchId: savedLaunch.id,
           stage,
           stageOrder: LAUNCH_STAGE_ORDER[stage],
-          // 첫 단계는 생성 시점 = 시작 시점이므로 targetDate 세팅하지 않아도
-          // createdAt으로 진입 시점 추적 가능
+          enteredAt: stage === LaunchStageType.SEARCHING ? now : null,
         }),
       );
       await manager.save(stages);
@@ -119,18 +118,15 @@ export class LaunchesService {
       );
     }
 
-    if (dto.targetDate !== undefined) {
-      stageRow.targetDate = dto.targetDate ? new Date(dto.targetDate) : null;
-    }
-    if (dto.completedAt !== undefined) {
-      stageRow.completedAt = dto.completedAt ? new Date(dto.completedAt) : null;
-    }
-    if (dto.completedBy !== undefined) {
-      stageRow.completedBy = dto.completedBy ?? null;
-    }
-    if (dto.memo !== undefined) {
-      stageRow.memo = dto.memo ?? null;
-    }
+    if (dto.targetDate !== undefined) stageRow.targetDate = dto.targetDate ? new Date(dto.targetDate) : null;
+    if (dto.enteredAt !== undefined) stageRow.enteredAt = dto.enteredAt ? new Date(dto.enteredAt) : null;
+    if (dto.completedAt !== undefined) stageRow.completedAt = dto.completedAt ? new Date(dto.completedAt) : null;
+    if (dto.completedBy !== undefined) stageRow.completedBy = dto.completedBy ?? null;
+    if (dto.assignee !== undefined) stageRow.assignee = dto.assignee ?? null;
+    if (dto.issue !== undefined) stageRow.issue = dto.issue ?? null;
+    if (dto.cost !== undefined) stageRow.cost = dto.cost ?? 0;
+    if (dto.attachments !== undefined) stageRow.attachments = dto.attachments ?? null;
+    if (dto.memo !== undefined) stageRow.memo = dto.memo ?? null;
 
     return this.stageRepo.save(stageRow);
   }
@@ -154,6 +150,13 @@ export class LaunchesService {
 
     const nextStage = LAUNCH_STAGES_IN_ORDER[currentOrder]; // 0-indexed, next
     launch.currentStage = nextStage;
+
+    // 다음 단계 enteredAt 자동 기록
+    const nextStageRow = launch.stages.find((s) => s.stage === nextStage);
+    if (nextStageRow && !nextStageRow.enteredAt) {
+      nextStageRow.enteredAt = new Date();
+      await this.stageRepo.save(nextStageRow);
+    }
 
     if (nextStage === LaunchStageType.LIVE) {
       launch.status = LaunchStatus.LIVE;
@@ -269,6 +272,45 @@ export class LaunchesService {
       relations: ['stages'],
       order: { abandonedAt: 'DESC' },
     });
+  }
+
+  /** 런칭 1건의 비용/진행 요약 */
+  async getSummary(id: number) {
+    const launch = await this.findOne(id);
+    const totalCost = launch.stages.reduce((s, st) => s + (st.cost || 0), 0);
+    const completedStages = launch.stages.filter((s) => s.completedAt).length;
+    const currentStageRow = launch.stages.find((s) => s.stage === launch.currentStage);
+
+    // 단계별 소요일
+    const stageDurations = launch.stages
+      .filter((s) => s.enteredAt && s.completedAt)
+      .map((s) => ({
+        stage: s.stage,
+        days: Math.round((new Date(s.completedAt!).getTime() - new Date(s.enteredAt!).getTime()) / 86400000),
+        cost: s.cost || 0,
+      }));
+
+    // 전체 소요일 (첫 진입 ~ 현재)
+    const firstEntry = launch.stages.find((s) => s.enteredAt);
+    const totalDays = firstEntry
+      ? Math.round((Date.now() - new Date(firstEntry.enteredAt!).getTime()) / 86400000)
+      : 0;
+
+    return {
+      launchId: id,
+      name: launch.name,
+      status: launch.status,
+      currentStage: launch.currentStage,
+      progress: `${completedStages}/8`,
+      totalCost,
+      totalDays,
+      stageDurations,
+      issues: launch.stages.filter((s) => s.issue).map((s) => ({
+        stage: s.stage,
+        issue: s.issue,
+        assignee: s.assignee,
+      })),
+    };
   }
 
   // 데드라인 지난 미완료 단계 조회
