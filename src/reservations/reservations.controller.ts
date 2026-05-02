@@ -28,6 +28,9 @@ export class ReservationsController {
 
   @Get()
   findAll(@Query() query: QueryReservationDto) {
+    if (query.page || query.limit) {
+      return this.reservationsService.findAllPaginated(query);
+    }
     return this.reservationsService.findAll(query);
   }
 

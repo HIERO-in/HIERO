@@ -58,7 +58,8 @@ export class PropertiesController {
   @Get('export')
   async exportXlsx(@Res() res: Response) {
     const buffer = await this.propertiesExportService.exportAll();
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const filename = `properties-${today}.xlsx`;
     res.set({
       'Content-Type':

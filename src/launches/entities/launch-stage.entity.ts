@@ -62,6 +62,10 @@ export class LaunchStage {
   @Column({ type: 'json', nullable: true })
   attachments: string[] | null;
 
+  /** 단계별 다른 입력 데이터 (JSON) */
+  @Column({ type: 'json', nullable: true })
+  details: Record<string, any> | null;
+
   /** 메모 */
   @Column({ type: 'text', nullable: true })
   memo: string | null;

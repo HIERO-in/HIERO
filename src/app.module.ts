@@ -13,6 +13,7 @@ import { HealthModule } from './health/health.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ReservationNotesModule } from './reservation-notes/reservation-notes.module';
+import { AiModule } from './ai/ai.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SyncScheduleService } from './sync-schedule.service';
 @Module({
@@ -42,6 +43,7 @@ import { SyncScheduleService } from './sync-schedule.service';
     TransactionsModule,
     DashboardModule,
     ReservationNotesModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [AppService, SyncScheduleService],

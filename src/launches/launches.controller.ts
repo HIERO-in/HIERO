@@ -40,6 +40,14 @@ export class LaunchesController {
     return this.launchesService.findAbandoned();
   }
 
+  @Get('pool-stats')
+  getPoolStats(
+    @Query('district') district: string,
+    @Query('grade') grade?: string,
+  ) {
+    return this.launchesService.getPoolStats(district, grade);
+  }
+
   @Get('overdue')
   findOverdue() {
     return this.launchesService.findOverdueStages();

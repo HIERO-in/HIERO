@@ -68,10 +68,60 @@ export class ReservationsService {
       qb.andWhere('r.stayStatus = :stayStatus', { stayStatus: query.stayStatus });
     }
 
-    return qb
-      .orderBy('r.propertyId', 'ASC')
-      .addOrderBy('r.checkInDate', 'ASC')
-      .getMany();
+    if (query.search) {
+      qb.andWhere(
+        '(r.guestName LIKE :q OR r.reservationCode LIKE :q)',
+        { q: `%${query.search}%` },
+      );
+    }
+
+    const sortCol = query.sortBy || 'checkInDate';
+    const sortDir = (query.sortDir || 'desc').toUpperCase() as 'ASC' | 'DESC';
+    qb.orderBy(`r.${sortCol}`, sortDir);
+
+    return qb.getMany();
+  }
+
+  async findAllPaginated(query: QueryReservationDto) {
+    const qb = this.reservationRepo.createQueryBuilder('r');
+
+    if (query.from && query.to) {
+      qb.andWhere('r.checkInDate <= :to AND r.checkOutDate >= :from', {
+        from: query.from,
+        to: query.to,
+      });
+    }
+    if (query.propertyId) {
+      qb.andWhere('r.propertyId = :propertyId', { propertyId: query.propertyId });
+    }
+    if (query.channelType) {
+      qb.andWhere('r.channelType = :channelType', { channelType: query.channelType });
+    }
+    if (query.status) {
+      qb.andWhere('r.status = :status', { status: query.status });
+    }
+    if (query.stayStatus) {
+      qb.andWhere('r.stayStatus = :stayStatus', { stayStatus: query.stayStatus });
+    }
+    if (query.search) {
+      qb.andWhere(
+        '(r.guestName LIKE :q OR r.reservationCode LIKE :q)',
+        { q: `%${query.search}%` },
+      );
+    }
+
+    const sortCol = query.sortBy || 'checkInDate';
+    const sortDir = (query.sortDir || 'desc').toUpperCase() as 'ASC' | 'DESC';
+    qb.orderBy(`r.${sortCol}`, sortDir);
+
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(200, Math.max(1, Number(query.limit) || 50));
+    const [items, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async findByDateRange(from: string, to: string): Promise<Reservation[]> {

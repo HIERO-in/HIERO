@@ -45,5 +45,19 @@ export class CreateLaunchDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(50)
+  district?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  expectedGrade?: string;
+
+  @IsOptional()
+  @IsInt()
+  buildingYear?: number;
+
+  @IsOptional()
+  @IsString()
   memo?: string;
 }

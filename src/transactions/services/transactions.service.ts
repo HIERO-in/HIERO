@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In, Between } from 'typeorm';
 import { HostexTransaction, TransactionKind } from '../entities/hostex-transaction.entity';
+import { UploadLog } from '../entities/upload-log.entity';
 import { TransactionParserService } from './transaction-parser.service';
 import { PropertiesService } from '../../properties/properties.service';
 
@@ -12,6 +13,8 @@ export class TransactionsService {
   constructor(
     @InjectRepository(HostexTransaction)
     private readonly txRepo: Repository<HostexTransaction>,
+    @InjectRepository(UploadLog)
+    private readonly logRepo: Repository<UploadLog>,
     private readonly parser: TransactionParserService,
     private readonly propertiesService: PropertiesService,
     private readonly dataSource: DataSource,
@@ -19,17 +22,19 @@ export class TransactionsService {
 
   // ═══════════ Import ═══════════
 
-  async importFromCsv(csvText: string): Promise<{
+  async importFromCsv(csvText: string, fileName = 'unknown.csv'): Promise<{
     totalRows: number;
     inserted: number;
     skipped: number;
     errors: string[];
     unknownCategories: string[];
     unmatchedProperties: string[];
+    insertedByCategory: Record<string, { count: number; total: number; kind: string }>;
+    uploadLogId?: number;
   }> {
     const { rows, errors, unknownCategories } = this.parser.parse(csvText);
     if (rows.length === 0) {
-      return { totalRows: 0, inserted: 0, skipped: 0, errors, unknownCategories, unmatchedProperties: [] };
+      return { totalRows: 0, inserted: 0, skipped: 0, errors, unknownCategories, unmatchedProperties: [], insertedByCategory: {} };
     }
 
     // 호실 매칭: propertyTitle → propertyHostexId
@@ -111,9 +116,32 @@ export class TransactionsService {
       }
     }
 
+    // 카테고리별 집계
+    const insertedByCategory: Record<string, { count: number; total: number; kind: string }> = {};
+    for (const r of newRows) {
+      if (!insertedByCategory[r.category]) {
+        insertedByCategory[r.category] = { count: 0, total: 0, kind: r.kind };
+      }
+      insertedByCategory[r.category].count++;
+      insertedByCategory[r.category].total += r.amount;
+    }
+
     this.logger.log(
       `Transaction import: ${rows.length} parsed, ${newRows.length} inserted, ${skipped} skipped, ${unmatchedSet.size} unmatched`,
     );
+
+    // 업로드 로그 저장
+    const log = this.logRepo.create({
+      fileName,
+      totalRows: rows.length,
+      inserted: newRows.length,
+      skipped,
+      errorCount: errors.length,
+      insertedHashes: JSON.stringify(newRows.map((r) => r.sourceHash)),
+      categoryBreakdown: JSON.stringify(insertedByCategory),
+    });
+    await this.logRepo.save(log);
+
     return {
       totalRows: rows.length,
       inserted: newRows.length,
@@ -121,6 +149,8 @@ export class TransactionsService {
       errors,
       unknownCategories,
       unmatchedProperties: [...unmatchedSet],
+      insertedByCategory,
+      uploadLogId: log.id,
     };
   }
 
@@ -175,7 +205,7 @@ export class TransactionsService {
     };
   }
 
-  /** 기간별 비용 요약 (체크인 날짜 기준) */
+  /** 기간별 비용 요약 (recordedAt 거래일 기준) */
   async getExpenseSummary(from: string, to: string): Promise<{
     totalExpense: number;
     totalIncome: number;
@@ -183,7 +213,7 @@ export class TransactionsService {
     byProperty: Record<string, { expense: number; income: number }>;
   }> {
     const rows = await this.txRepo.createQueryBuilder('t')
-      .where('t.checkInDate <= :to AND t.checkOutDate >= :from', { from, to })
+      .where('DATE(t.recordedAt) >= :from AND DATE(t.recordedAt) <= :to', { from, to })
       .getMany();
 
     let totalExpense = 0;
@@ -288,9 +318,59 @@ export class TransactionsService {
     };
   }
 
+  /** 수동 거래 추가 */
+  async createManual(dto: Partial<HostexTransaction>) {
+    const tx = this.txRepo.create({
+      ...dto,
+      recordedAt: dto.recordedAt || new Date(),
+      year: dto.year || new Date().getFullYear(),
+      month: dto.month || new Date().getMonth() + 1,
+      sourceHash: `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    });
+    return this.txRepo.save(tx);
+  }
+
+  /** 거래 수정 */
+  async updateOne(id: number, dto: Partial<HostexTransaction>) {
+    await this.txRepo.update(id, dto);
+    return this.txRepo.findOneBy({ id });
+  }
+
+  /** 단건 삭제 */
+  async removeOne(id: number) {
+    await this.txRepo.delete(id);
+    return { deleted: id };
+  }
+
   async deleteAll(): Promise<{ deleted: number }> {
     const count = await this.txRepo.count();
     await this.txRepo.clear();
     return { deleted: count };
+  }
+
+  // ═══════════ 업로드 로그 ═══════════
+
+  async getUploadLogs() {
+    return this.logRepo.find({ order: { uploadedAt: 'DESC' } });
+  }
+
+  /** 특정 업로드 건의 거래를 모두 삭제 */
+  async deleteByUploadLog(logId: number) {
+    const log = await this.logRepo.findOneBy({ id: logId });
+    if (!log) return { deleted: 0 };
+    if (log.deleted) return { deleted: 0, message: '이미 삭제된 업로드입니다.' };
+
+    const hashes: string[] = JSON.parse(log.insertedHashes || '[]');
+    let deleted = 0;
+    for (let i = 0; i < hashes.length; i += 500) {
+      const chunk = hashes.slice(i, i + 500);
+      const result = await this.txRepo.delete({ sourceHash: In(chunk) });
+      deleted += result.affected || 0;
+    }
+
+    log.deleted = true;
+    await this.logRepo.save(log);
+
+    return { deleted, logId };
   }
 }

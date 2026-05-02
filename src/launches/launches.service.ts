@@ -128,6 +128,7 @@ export class LaunchesService {
     if (dto.issue !== undefined) stageRow.issue = dto.issue ?? null;
     if (dto.cost !== undefined) stageRow.cost = dto.cost ?? 0;
     if (dto.attachments !== undefined) stageRow.attachments = dto.attachments ?? null;
+    if (dto.details !== undefined) stageRow.details = dto.details ?? null;
     if (dto.memo !== undefined) stageRow.memo = dto.memo ?? null;
 
     return this.stageRepo.save(stageRow);
@@ -350,6 +351,35 @@ export class LaunchesService {
     } as any);
 
     return { launch: await this.findOne(launchId), propertyId: newProp.id, created: true };
+  }
+
+  /** 같은 생활권(+등급)의 호실 풀 통계 */
+  async getPoolStats(district: string, grade?: string) {
+    const props = await this.propertiesService.findAll();
+    const filtered = props.filter((p: any) =>
+      p.address && p.address.includes(district) &&
+      (!grade || p.grade === grade)
+    );
+
+    if (filtered.length === 0) {
+      return {
+        district,
+        grade,
+        units: 0,
+        avgADR: null,
+        avgOccupancy: null,
+        message: '해당 풀에 호실 없음 (신규 풀)',
+      };
+    }
+
+    return {
+      district,
+      grade,
+      units: filtered.length,
+      avgADR: null,
+      avgOccupancy: null,
+      properties: filtered.map((p: any) => ({ id: p.id, title: p.title })),
+    };
   }
 
   // 데드라인 지난 미완료 단계 조회

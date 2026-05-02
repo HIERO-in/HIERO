@@ -439,7 +439,8 @@ export class HealthService {
 
   parsePeriod(periodStr: string): PeriodRange {
     const today = new Date();
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const fmt = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
     if (periodStr === 'this_month') {
       const start = new Date(today.getFullYear(), today.getMonth(), 1);

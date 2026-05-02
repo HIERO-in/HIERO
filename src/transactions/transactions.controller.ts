@@ -1,9 +1,12 @@
 import {
+  Body,
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Param,
+  ParseIntPipe,
   Query,
   UploadedFile,
   UseInterceptors,
@@ -29,7 +32,19 @@ export class TransactionsController {
       throw new BadRequestException("'file' 필드에 CSV를 첨부하세요.");
     }
     const text = file.buffer.toString('utf8');
-    return this.service.importFromCsv(text);
+    return this.service.importFromCsv(text, file.originalname);
+  }
+
+  /** 업로드 이력 조회 */
+  @Get('upload-logs')
+  getUploadLogs() {
+    return this.service.getUploadLogs();
+  }
+
+  /** 특정 업로드 건의 거래 삭제 */
+  @Delete('upload-logs/:id')
+  deleteByUploadLog(@Param('id', ParseIntPipe) id: number) {
+    return this.service.deleteByUploadLog(id);
   }
 
   /** 전체 통계 + 연도/종류별 집계 */
@@ -64,6 +79,24 @@ export class TransactionsController {
     @Query('to') to?: string,
   ) {
     return this.service.getPropertyFinancials(decodeURIComponent(title), from, to);
+  }
+
+  /** 수동 거래 추가 */
+  @Post('manual')
+  createManual(@Body() dto: any) {
+    return this.service.createManual(dto);
+  }
+
+  /** 거래 수정 */
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: any) {
+    return this.service.updateOne(id, dto);
+  }
+
+  /** 단건 삭제 */
+  @Delete(':id')
+  removeOne(@Param('id', ParseIntPipe) id: number) {
+    return this.service.removeOne(id);
   }
 
   /** 전체 삭제 (재import용) */

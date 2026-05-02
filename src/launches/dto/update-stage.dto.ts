@@ -4,6 +4,7 @@ import {
   IsDateString,
   IsInt,
   IsArray,
+  IsObject,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -44,6 +45,10 @@ export class UpdateStageDto {
   @IsArray()
   @IsString({ each: true })
   attachments?: string[];
+
+  @IsOptional()
+  @IsObject()
+  details?: Record<string, any>;
 
   @IsOptional()
   @IsString()

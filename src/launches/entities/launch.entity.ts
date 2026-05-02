@@ -53,6 +53,15 @@ export class Launch {
   @Column({ type: 'int', nullable: true })
   area: number | null;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  district: string | null;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  expectedGrade: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  buildingYear: number | null;
+
   @Column({ type: 'text', nullable: true })
   memo: string | null;
 
